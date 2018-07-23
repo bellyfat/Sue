@@ -18,13 +18,12 @@ def process_reply():
     #   a group, or an individual. Cool, huh?
 
     if app.config['DEBUG']:
-        print('Old form:')
         pprint(flask.request.form)
-        # flask.request.form'textBody'] = flask.request.form['textBody'].upper()
     
     command = check_command(flask.request.form)
     if not command:
         # User isn't talking to Sue. Ignore.
+        # TODO: Try adding non-command interactions with Sue. Q&A, etc.
         return ''
     
     # message metadata will be used to direct response output.
@@ -115,8 +114,8 @@ def sue_help():
                     if specificDocumentation:
                         return reduce_output([x.strip() for x in specificDocumentation], delimiter='\n')
                     else:
-                        return 'No documentation for {0} yet. Add it to the\
-                        repo! https://github.com/inculi/Sue'.format(msg.textBody)
+                        return 'No documentation for !{0} yet. Add it to the\
+                        repo! https://github.com/inculi/Sue'.format(msg.command)
                 # else:
                 #     print(firstLine.split(' ',1)[0].replace('!',''))
                 #     print(msg.textBody.lower())

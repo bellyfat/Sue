@@ -2,10 +2,10 @@ import subprocess
 import sys
 import os
 from pprint import pprint
-
+from abc import ABC, abstractmethod
 from urllib.parse import quote
 
-from sue.utils import reduce_output
+from sue.utils import reduce_output, secure_string
 
 class Message(object):
     def __init__(self, msgForm):
@@ -13,6 +13,13 @@ class Message(object):
 
     @classmethod
     def _create_message(cls, msgForm):
+        """Used to initialize a method if it exists, or return null if it is not
+        a message that sue will be using to 
+
+        Parameters
+        ----------
+            msgForm : flask.request.form
+        """
         textBody = msgForm['textBody'].strip()
 
         # find the command we are being told to execute
@@ -70,34 +77,63 @@ class Message(object):
 
         return cls
 
+class Response(ABC):
+    """Base class used for sending Sue's response back to the user.
+    The classes associated with connecting to iMessage and Signal both inherit
+    from this. It's also used by the debug client, `debug.py`.
 
-class Response(object):
+    Parameters
+    ----------
+    origin_message : Message
+        The flask.request.form we have casted into a message. Contains info
+          as to which group to send our response back to.
+    sue_response : str
+        All of our functions either return a string, or a list of strings that
+          is then reduced (x+'\n'+y) back into a single string. This response
+          string is what is sent back to the user.
+    attachment : str
+        The file path of any attachment we wish to send. We currently only
+          support sending back files in iMessage. I plan on setting the message
+          to an empty string ("") when there is an attachment, unless I find a
+          scenario where I want to send an image and a string back.
+    """
     def __init__(self, origin_message, sue_response, attachment=None):
+        self.origin_message = origin_message
+        self.sue_response = sue_response
         self.attachment = attachment
+
         if origin_message.buddyId == 'debug':
             print('### DEBUG ###')
-            pprint(sue_response)
+            pprint(self.sue_response)
         else:
-            self.send_to_queue(origin_message, sue_response)
+            self.send()
 
-    def send_to_queue(self, origin_message, sue_response):
+    @abstractmethod
+    def send(self, origin_message, sue_response):
+        pass
+
+class IMessageResponse(Response):
+    """Used to send Sue's respose back to groups/individuals on iMessage.
+    Called when msg.platform is 'imessage'.
+    
+    See `Response` class for more info on parameters.
+    """
+
+    def __init__(self, origin_message, sue_response, attachment=None):
+        # super() sets attachment
+        super().__init__(origin_message, sue_response, attachment=attachment)
+    
+    def send():
         FNULL = open(os.devnull, 'wb')
-
-        # TODO: make helper function to do this string safety stuff.
-        origin_message.chatId = origin_message.chatId.replace(
-            '+','ƒƒƒ').replace('$','¬¬¬')
-        origin_message.buddyId = origin_message.buddyId.replace(
-            '+','ƒƒƒ').replace('$','¬¬¬')
         
         command = ["osascript",
                    "direct.applescript",
-                   quote(origin_message.chatId),
-                   quote(origin_message.buddyId),
-                   quote(sue_response)]
+                   secure_string(self.origin_message.chatId),
+                   secure_string(self.origin_message.buddyId),
+                   secure_string(self.sue_response)]
         
         if self.attachment:
-            f = self.attachment
-            f = quote(f.replace('+','ƒƒƒ').replace('$','¬¬¬'))
+            f = secure_string(self.attachment)
             command.extend(['file', f])
         else:
             command.append('msg')
@@ -110,7 +146,14 @@ class Response(object):
         FNULL.flush()
         FNULL.close()
 
-class DirectResponse(object):
+class SignalResponse(Response):
+    def __init__(self, origin_message, sue_response, attachment=None):
+        super().__init__(origin_message, sue_response, attachment=attachment)
+    
+    def send():
+        raise NotImplementedError("Still thinking about how GET -> Response...")
+
+class DirectResponse():
     def __init__(self, recipient, sue_response):
         self.send_to_queue(recipient, sue_response)
     
@@ -134,19 +177,15 @@ class DirectResponse(object):
             return
 
         FNULL = open(os.devnull, 'wb')
-
-        recipient = recipient.replace('+','ƒƒƒ').replace('$','¬¬¬')
         
         # TODO: rename the applescript files to actually reflect what they do.
         command = ["osascript",
                    "actuallydirect.applescript",
-                   quote(recipient),
-                   quote(method),
-                   quote(sue_response)]
+                   secure_string(recipient),
+                   secure_string(method),
+                   secure_string(sue_response)]
         
         print(command)
-
-        print('Sending response.')
         subprocess.Popen(command, stdout=FNULL)
 
         FNULL.flush()
